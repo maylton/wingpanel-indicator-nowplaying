@@ -1,5 +1,8 @@
 # Now Playing — media indicator for elementary OS
 
+<img width="378" height="526" alt="now playing" src="https://github.com/user-attachments/assets/fe163eb6-b122-426b-884f-f96a855aa3ef" />
+
+
 A Wingpanel indicator for **elementary OS 8.x** that shows what's playing in the
 panel and full controls in a popover. Works with any **MPRIS** player (Spotify,
 VLC, Rhythmbox, web browsers, YouTube Music clients…).
