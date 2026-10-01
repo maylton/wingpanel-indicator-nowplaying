@@ -1,2 +1,5 @@
 src/Indicator.vala
+src/Services/LyricsService.vala
 src/Widgets/PlayerView.vala
+src/Widgets/LyricsView.vala
+src/Widgets/SettingsView.vala

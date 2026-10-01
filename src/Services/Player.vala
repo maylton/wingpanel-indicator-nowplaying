@@ -53,6 +53,10 @@ namespace NowPlaying {
         public string artist { get; private set; default = ""; }
         public string album { get; private set; default = ""; }
         public string art_url { get; private set; default = ""; }
+        /* file:// or http(s):// address of the media, when the player tells */
+        public string url { get; private set; default = ""; }
+        /* Lyrics sent by the player itself (xesam:asText), plain or LRC */
+        public string lyrics_text { get; private set; default = ""; }
         public string track_id { get; private set; default = ""; }
         /* Track length in microseconds (0 when unknown) */
         public int64 length { get; private set; default = 0; }
@@ -78,6 +82,7 @@ namespace NowPlaying {
 
         /* Last known position in microseconds, refreshed by query_position () */
         public int64 position { get; private set; default = 0; }
+        private int64 position_time = 0;
 
         public signal void metadata_changed ();
         public signal void state_changed ();
@@ -129,14 +134,20 @@ namespace NowPlaying {
                     }
                 }
 
+                int64 estimated = estimate_position ();
                 if (metadata) {
                     read_metadata ();
-                    position = 0;
+                    estimated = 0;
+                    update_position (0);
                     metadata_changed ();
                 }
 
                 bool was_playing = is_playing;
                 read_state ();
+                if (is_playing != was_playing) {
+                    /* freeze (or restart) the clock used for interpolation */
+                    update_position (estimated);
+                }
                 if (is_playing && !was_playing) {
                     last_active = get_monotonic_time ();
                 }
@@ -147,7 +158,7 @@ namespace NowPlaying {
                 if (signal_name == "Seeked" && parameters.is_of_type (new VariantType ("(x)"))) {
                     int64 pos;
                     parameters.get ("(x)", out pos);
-                    position = pos;
+                    update_position (pos);
                     seeked (pos);
                 }
             });
@@ -226,6 +237,8 @@ namespace NowPlaying {
             artist = "";
             album = "";
             art_url = "";
+            url = "";
+            lyrics_text = "";
             track_id = "";
             length = 0;
 
@@ -256,6 +269,16 @@ namespace NowPlaying {
             v = md.lookup_value ("mpris:artUrl", null);
             if (v != null && v.is_of_type (VariantType.STRING)) {
                 art_url = v.get_string ();
+            }
+
+            v = md.lookup_value ("xesam:url", null);
+            if (v != null && v.is_of_type (VariantType.STRING)) {
+                url = v.get_string ();
+            }
+
+            v = md.lookup_value ("xesam:asText", null);
+            if (v != null && v.is_of_type (VariantType.STRING)) {
+                lyrics_text = v.get_string ();
             }
 
             v = md.lookup_value ("mpris:trackid", null);
@@ -345,7 +368,7 @@ namespace NowPlaying {
             } else {
                 call_method (player_proxy, "Seek", new Variant ("(x)", target - position));
             }
-            position = target;
+            update_position (target);
         }
 
         /* Position is never announced through PropertiesChanged, so ask for it */
@@ -362,7 +385,7 @@ namespace NowPlaying {
                 );
                 Variant inner;
                 result.get ("(v)", out inner);
-                position = variant_to_int64 (inner);
+                update_position (variant_to_int64 (inner));
             } catch (Error e) {
                 debug ("Position query failed for %s: %s", bus_name, e.message);
             }
@@ -370,9 +393,30 @@ namespace NowPlaying {
             return position;
         }
 
+        private void update_position (int64 value) {
+            position = value;
+            position_time = get_monotonic_time ();
+        }
+
+        /* Position now, interpolated from the last known one (for lyrics and the vinyl arm) */
+        public int64 estimate_position () {
+            if (!is_playing || position_time == 0) {
+                return position;
+            }
+            int64 p = position + (get_monotonic_time () - position_time);
+            return length > 0 ? int64.min (p, length) : p;
+        }
+
+        /* Key used to remember per-app preferences */
+        public string app_key {
+            owned get {
+                return identity != "" ? identity : bus_name;
+            }
+        }
+
         /* Text shown in the panel */
-        public string get_panel_text () {
-            if (title != "" && artist != "") {
+        public string get_panel_text (bool show_artist = true) {
+            if (show_artist && title != "" && artist != "") {
                 return "%s — %s".printf (title, artist);
             }
             if (title != "") {

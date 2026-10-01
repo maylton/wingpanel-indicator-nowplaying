@@ -1,8 +1,12 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Popover page for one player: app header, album art, track info,
- * seek bar and transport controls.
+ * Popover page for one player: app header, album art (or spinning vinyl,
+ * or synced lyrics), track info, seek bar and transport controls.
+ *
+ * Art modes: buttons in the header, or — like the GNOME extension —
+ * double-click the art for the vinyl, triple-click for the lyrics.
+ * The chosen mode is remembered per app.
  */
 
 public class NowPlaying.PlayerView : Gtk.Grid {
@@ -14,6 +18,11 @@ public class NowPlaying.PlayerView : Gtk.Grid {
     public signal void request_close ();
 
     private AlbumArt art;
+    private VinylView vinyl;
+    private LyricsView lyrics_view;
+    private Gtk.Stack art_stack;
+    private Gtk.ToggleButton vinyl_toggle;
+    private Gtk.ToggleButton lyrics_toggle;
     private Gtk.Label title_label;
     private Gtk.Label artist_label;
     private Gtk.Label album_label;
@@ -35,6 +44,11 @@ public class NowPlaying.PlayerView : Gtk.Grid {
     private uint seek_id = 0;
     private double pending_seek = -1;
     private string current_art_url = "";
+    private string mode = Preferences.MODE_COVER;
+    private uint fast_id = 0;
+    private uint click_id = 0;
+    private string lyrics_key = "";
+    private uint lyrics_request = 0;
 
     public PlayerView (Player player) {
         Object (player: player);
@@ -73,12 +87,71 @@ public class NowPlaying.PlayerView : Gtk.Grid {
         player.bind_property ("icon", app_icon, "gicon", BindingFlags.SYNC_CREATE);
         player.bind_property ("identity", app_label, "label", BindingFlags.SYNC_CREATE);
         player.bind_property ("can-raise", header_button, "sensitive", BindingFlags.SYNC_CREATE);
+        header_button.hexpand = true;
 
-        art = new AlbumArt (ART_SIZE) {
+        /* Mode toggles: vinyl and lyrics (both off = cover) */
+        vinyl_toggle = new Gtk.ToggleButton () {
+            tooltip_text = _("Vinyl"),
+            image = new Gtk.Image.from_gicon (
+                new ThemedIcon.from_names ({ "media-optical-symbolic", "media-optical-cd-audio-symbolic" }),
+                Gtk.IconSize.BUTTON
+            ),
+            valign = Gtk.Align.CENTER,
+            can_focus = false
+        };
+        lyrics_toggle = new Gtk.ToggleButton () {
+            tooltip_text = _("Lyrics"),
+            image = new Gtk.Image.from_gicon (
+                new ThemedIcon.from_names ({ "format-justify-center-symbolic", "view-list-symbolic" }),
+                Gtk.IconSize.BUTTON
+            ),
+            valign = Gtk.Align.CENTER,
+            can_focus = false,
+            margin_end = 6
+        };
+        foreach (var t in new Gtk.ToggleButton[] { vinyl_toggle, lyrics_toggle }) {
+            t.get_style_context ().add_class (Gtk.STYLE_CLASS_FLAT);
+            t.get_style_context ().add_class ("nowplaying-toggle");
+        }
+        vinyl_toggle.toggled.connect (() => {
+            if (!updating) {
+                set_mode (vinyl_toggle.active ? Preferences.MODE_VINYL : Preferences.MODE_COVER);
+            }
+        });
+        lyrics_toggle.toggled.connect (() => {
+            if (!updating) {
+                set_mode (lyrics_toggle.active ? Preferences.MODE_LYRICS : Preferences.MODE_COVER);
+            }
+        });
+
+        var header_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
+        header_row.add (header_button);
+        header_row.add (vinyl_toggle);
+        header_row.add (lyrics_toggle);
+
+        art = new AlbumArt (ART_SIZE);
+        vinyl = new VinylView (ART_SIZE);
+        lyrics_view = new LyricsView (ART_SIZE);
+        lyrics_view.seek_requested.connect ((time) => {
+            player.seek_to (time);
+            lyrics_view.update_position (time);
+        });
+
+        art_stack = new Gtk.Stack () {
+            transition_type = Gtk.StackTransitionType.CROSSFADE,
+            transition_duration = 250,
             margin_start = 12,
             margin_end = 12,
             margin_top = 6
         };
+        art_stack.add_named (art, Preferences.MODE_COVER);
+        art_stack.add_named (vinyl, Preferences.MODE_VINYL);
+        art_stack.add_named (lyrics_view, Preferences.MODE_LYRICS);
+
+        /* double-click: vinyl, triple-click: lyrics */
+        var art_events = new Gtk.EventBox ();
+        art_events.add (art_stack);
+        art_events.button_press_event.connect (on_art_press);
 
         title_label = new Gtk.Label (null) {
             ellipsize = Pango.EllipsizeMode.END,
@@ -205,8 +278,8 @@ public class NowPlaying.PlayerView : Gtk.Grid {
         shuffle_button.image.show ();
         repeat_image.show ();
 
-        add (header_button);
-        add (art);
+        add (header_row);
+        add (art_events);
         add (title_label);
         add (artist_label);
         add (album_label);
@@ -219,6 +292,142 @@ public class NowPlaying.PlayerView : Gtk.Grid {
 
         update_metadata ();
         update_state ();
+
+        /* Stack children must be visible before one can be selected */
+        art_stack.show_all ();
+        apply_mode (Preferences.get_default ().get_mode (player.app_key), false);
+        player.notify["identity"].connect (on_identity_changed);
+
+        var prefs = Preferences.get_default ();
+        prefs.notify["lyrics-lrclib"].connect (on_sources_changed);
+        prefs.notify["lyrics-netease"].connect (on_sources_changed);
+    }
+
+    /* A lyrics source was turned on/off: look again */
+    private void on_sources_changed () {
+        lyrics_key = "";
+        if (active && mode == Preferences.MODE_LYRICS) {
+            load_lyrics ();
+        }
+    }
+
+    private void on_identity_changed () {
+        apply_mode (Preferences.get_default ().get_mode (player.app_key), false);
+    }
+
+    /* ---------- art modes ---------- */
+
+    private bool on_art_press (Gdk.EventButton event) {
+        if (event.button != Gdk.BUTTON_PRIMARY) {
+            return Gdk.EVENT_PROPAGATE;
+        }
+
+        if (event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS) {
+            /* wait a moment: this may become a triple click */
+            cancel_click ();
+            click_id = Timeout.add (Gtk.Settings.get_default ().gtk_double_click_time, () => {
+                click_id = 0;
+                set_mode (mode == Preferences.MODE_VINYL ? Preferences.MODE_COVER : Preferences.MODE_VINYL);
+                return Source.REMOVE;
+            });
+            return Gdk.EVENT_STOP;
+        }
+
+        if (event.type == Gdk.EventType.TRIPLE_BUTTON_PRESS) {
+            cancel_click ();
+            set_mode (mode == Preferences.MODE_LYRICS ? Preferences.MODE_COVER : Preferences.MODE_LYRICS);
+            return Gdk.EVENT_STOP;
+        }
+
+        return Gdk.EVENT_PROPAGATE;
+    }
+
+    private void cancel_click () {
+        if (click_id != 0) {
+            Source.remove (click_id);
+            click_id = 0;
+        }
+    }
+
+    private void set_mode (string new_mode) {
+        apply_mode (new_mode, true);
+        Preferences.get_default ().set_mode (player.app_key, new_mode);
+    }
+
+    private void apply_mode (string new_mode, bool animate) {
+        if (new_mode != Preferences.MODE_VINYL && new_mode != Preferences.MODE_LYRICS) {
+            new_mode = Preferences.MODE_COVER;
+        }
+        mode = new_mode;
+
+        updating = true;
+        vinyl_toggle.active = mode == Preferences.MODE_VINYL;
+        lyrics_toggle.active = mode == Preferences.MODE_LYRICS;
+        updating = false;
+
+        art_stack.set_visible_child_full (
+            mode, animate ? Gtk.StackTransitionType.CROSSFADE : Gtk.StackTransitionType.NONE
+        );
+
+        if (mode == Preferences.MODE_LYRICS) {
+            load_lyrics ();
+        }
+        update_fast_timer ();
+        tick_fast ();
+    }
+
+    /* ---------- lyrics ---------- */
+
+    private void load_lyrics () {
+        var key = "%s\n%s\n%s\n%lld\n%s\n%u".printf (
+            player.title, player.artist, player.album, player.length, player.url, player.lyrics_text.hash ()
+        );
+        if (key == lyrics_key) {
+            return;
+        }
+        lyrics_key = key;
+
+        if (player.title == "") {
+            lyrics_view.show_message (_("Nothing is playing"));
+            return;
+        }
+
+        lyrics_view.show_loading ();
+        var request = ++lyrics_request;
+        LyricsService.get_default ().fetch.begin (
+            new TrackQuery.from_player (player), (obj, res) => {
+                var result = LyricsService.get_default ().fetch.end (res);
+                if (request != lyrics_request) {
+                    return;  /* the song changed meanwhile */
+                }
+                lyrics_view.set_lyrics (result);
+                tick_fast ();
+            }
+        );
+    }
+
+    /* ---------- smooth updates for lyrics and the vinyl arm ---------- */
+
+    private void update_fast_timer () {
+        bool needed = active && mode != Preferences.MODE_COVER && player.is_playing;
+        if (needed && fast_id == 0) {
+            fast_id = Timeout.add (100, () => {
+                tick_fast ();
+                return Source.CONTINUE;
+            });
+        } else if (!needed && fast_id != 0) {
+            Source.remove (fast_id);
+            fast_id = 0;
+        }
+    }
+
+    private void tick_fast () {
+        int64 pos = player.estimate_position ();
+        if (mode == Preferences.MODE_LYRICS) {
+            lyrics_view.update_position (pos);
+        } else if (mode == Preferences.MODE_VINYL) {
+            vinyl.progress = player.length > 0 ? (double) pos / player.length : 0;
+        }
     }
 
     /* Drop every link to the player so neither object keeps the other alive */
@@ -226,8 +435,14 @@ public class NowPlaying.PlayerView : Gtk.Grid {
         player.metadata_changed.disconnect (update_metadata);
         player.state_changed.disconnect (update_state);
         player.seeked.disconnect (on_seeked);
+        player.notify["identity"].disconnect (on_identity_changed);
+        Preferences.get_default ().notify["lyrics-lrclib"].disconnect (on_sources_changed);
+        Preferences.get_default ().notify["lyrics-netease"].disconnect (on_sources_changed);
         active = false;
         update_polling ();
+        update_fast_timer ();
+        cancel_click ();
+        lyrics_request++;
         if (seek_id != 0) {
             Source.remove (seek_id);
             seek_id = 0;
@@ -238,14 +453,19 @@ public class NowPlaying.PlayerView : Gtk.Grid {
         if (pending_seek < 0) {
             set_position_ui (pos);
         }
+        tick_fast ();
     }
 
     /* Called by the indicator when this page becomes visible / hidden */
     public void set_active (bool value) {
         active = value;
         update_polling ();
+        update_fast_timer ();
         if (active) {
             refresh_position ();
+            if (mode == Preferences.MODE_LYRICS) {
+                load_lyrics ();
+            }
         }
     }
 
@@ -336,6 +556,7 @@ public class NowPlaying.PlayerView : Gtk.Grid {
             current_art_url = player.art_url;
             if (current_art_url == "") {
                 art.set_pixbuf (null);
+                vinyl.set_pixbuf (null);
             } else {
                 var requested = current_art_url;
                 ArtLoader.get_default ().load.begin (requested, (obj, res) => {
@@ -343,9 +564,14 @@ public class NowPlaying.PlayerView : Gtk.Grid {
                     /* Ignore late answers for a previous track */
                     if (requested == current_art_url) {
                         art.set_pixbuf (pixbuf);
+                        vinyl.set_pixbuf (pixbuf);
                     }
                 });
             }
+        }
+
+        if (mode == Preferences.MODE_LYRICS && active) {
+            load_lyrics ();
         }
 
         update_state ();
@@ -388,6 +614,9 @@ public class NowPlaying.PlayerView : Gtk.Grid {
 
         updating = false;
 
+        vinyl.playing = player.is_playing;
         update_polling ();
+        update_fast_timer ();
+        tick_fast ();
     }
 }
