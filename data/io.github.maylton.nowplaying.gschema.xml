@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="io.github.maylton.nowplaying" path="/io/github/maylton/nowplaying/">
+    <key name="panel-width" type="i">
+      <range min="80" max="400"/>
+      <default>200</default>
+      <summary>Panel text width</summary>
+      <description>Maximum width, in pixels, of the track title shown in the panel.</description>
+    </key>
+    <key name="show-artist" type="b">
+      <default>true</default>
+      <summary>Show the artist in the panel</summary>
+    </key>
+    <key name="scroll-text" type="b">
+      <default>true</default>
+      <summary>Keep long titles scrolling while music plays</summary>
+    </key>
+    <key name="show-when-paused" type="b">
+      <default>true</default>
+      <summary>Keep the indicator visible when nothing is playing</summary>
+    </key>
+    <key name="panel-lyrics" type="b">
+      <default>false</default>
+      <summary>Show lyrics in the panel</summary>
+      <description>Show the line being sung instead of the track title, when synced lyrics are available.</description>
+    </key>
+    <key name="lyrics-lrclib" type="b">
+      <default>true</default>
+      <summary>Search lyrics on LRCLIB</summary>
+    </key>
+    <key name="lyrics-netease" type="b">
+      <default>false</default>
+      <summary>Search lyrics on NetEase Cloud Music</summary>
+      <description>Unofficial public endpoint with a large catalogue of Asian music. It may stop working at any time.</description>
+    </key>
+    <key name="art-modes" type="a{ss}">
+      <default>{}</default>
+      <summary>Display mode per app</summary>
+      <description>Maps a player name to "vinyl" or "lyrics". Apps not listed show the cover.</description>
+    </key>
+  </schema>
+</schemalist>
