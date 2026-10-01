@@ -1,0 +1,139 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the nowplaying-indicator package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: nowplaying-indicator\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-01 17:56-0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/Indicator.vala:148
+msgid "Indicator Preferences…"
+msgstr ""
+
+#. 1. sent by the player (never cached: it's free and may change)
+#: src/Services/LyricsService.vala:261
+msgid "Player"
+msgstr ""
+
+#: src/Services/LyricsService.vala:357
+msgid "Local file"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:94
+msgid "Vinyl"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:103
+msgid "Lyrics"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:215
+msgid "Shuffle"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:225
+msgid "Previous"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:239
+msgid "Next"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:391
+msgid "Nothing is playing"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:584
+msgid "Pause"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:584
+msgid "Play"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:599
+msgid "Repeat: current track"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:603
+msgid "Repeat: all"
+msgstr ""
+
+#: src/Widgets/PlayerView.vala:607
+msgid "Repeat: off"
+msgstr ""
+
+#: src/Widgets/LyricsView.vala:136
+msgid "No lyrics found for this song"
+msgstr ""
+
+#: src/Widgets/LyricsView.vala:141
+msgid "♪ Instrumental ♪"
+msgstr ""
+
+#. Back row, like other elementary popover sub-pages
+#: src/Widgets/SettingsView.vala:17
+msgid "Preferences"
+msgstr ""
+
+#. Panel text width
+#: src/Widgets/SettingsView.vala:35
+msgid "Panel text width"
+msgstr ""
+
+#: src/Widgets/SettingsView.vala:60
+msgid "Show lyrics in the panel"
+msgstr ""
+
+#: src/Widgets/SettingsView.vala:62
+msgid ""
+"Shows the line being sung when synced lyrics are found; otherwise, the song "
+"name."
+msgstr ""
+
+#: src/Widgets/SettingsView.vala:74
+msgid "Show artist in the panel"
+msgstr ""
+
+#: src/Widgets/SettingsView.vala:75
+msgid "Keep long titles scrolling"
+msgstr ""
+
+#: src/Widgets/SettingsView.vala:76
+msgid "Show when nothing is playing"
+msgstr ""
+
+#. ---- lyrics sources ----
+#: src/Widgets/SettingsView.vala:79
+msgid "Lyrics sources"
+msgstr ""
+
+#: src/Widgets/SettingsView.vala:90
+msgid "Free and open lyrics database."
+msgstr ""
+
+#: src/Widgets/SettingsView.vala:92
+msgid ""
+"Great for Asian music. Unofficial access: it may stop working at any time."
+msgstr ""
+
+#: src/Widgets/SettingsView.vala:93
+msgid ""
+"Lyrics sent by the player and .lrc files (next to the song or in ~/.lyrics) "
+"are always used first."
+msgstr ""
+
+#: src/Widgets/SettingsView.vala:95
+msgid "Tip: double-click the cover for the vinyl, triple-click for the lyrics."
+msgstr ""

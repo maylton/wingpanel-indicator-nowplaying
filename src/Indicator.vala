@@ -6,6 +6,8 @@
  */
 
 public class NowPlaying.Indicator : Wingpanel.Indicator {
+    private const int PANEL_TEXT_WIDTH = 200;
+
     private const string CSS = """
         .nowplaying-title {
             font-weight: bold;
@@ -27,43 +29,13 @@ public class NowPlaying.Indicator : Wingpanel.Indicator {
         .nowplaying-toggle:checked {
             color: @theme_selected_bg_color;
         }
-        .nowplaying-lyrics {
-            background-color: alpha(@theme_fg_color, 0.06);
-            border-radius: 8px;
-        }
-        .nowplaying-lyric {
-            opacity: 0.45;
-            transition: opacity 250ms ease-out;
-        }
-        .nowplaying-lyric-active {
-            opacity: 1;
-            font-weight: bold;
-        }
-        .nowplaying-lyric-plain {
-            opacity: 0.85;
-        }
-        .nowplaying-lyrics-source {
-            font-size: 0.75em;
-            padding: 1px 6px;
-            border-radius: 9px;
-            background-color: alpha(@theme_bg_color, 0.85);
-            color: alpha(@theme_fg_color, 0.6);
-        }
-        .nowplaying-section {
-            font-weight: bold;
-            font-size: 0.9em;
-            opacity: 0.7;
-        }
-        .nowplaying-settings-title {
-            font-weight: bold;
-        }
     """;
 
     private Gtk.Box display_widget;
     private Gtk.Image panel_icon;
     private MarqueeLabel marquee;
 
-    private Gtk.Stack main_widget;
+    private Gtk.Grid main_widget;
     private Gtk.Stack stack;
     private Gtk.StackSwitcher switcher;
 
@@ -72,23 +44,8 @@ public class NowPlaying.Indicator : Wingpanel.Indicator {
     private Player? active_player = null;
     private bool popover_open = false;
 
-    /* lyrics shown in the panel */
-    private const int64 LYRIC_LEAD = 200000;
-    private Lyrics? panel_lyrics = null;
-    private string panel_lyrics_key = "";
-    private uint panel_lyrics_request = 0;
-    private int panel_line = -2;
-    private uint lyric_timer = 0;
-    private uint lyric_poll = 0;
-    private Preferences prefs;
-
     public Indicator () {
-        /*
-         * Wingpanel sorts third-party indicators alphabetically by code_name.
-         * The "aa-" prefix keeps us to the left of other unknown indicators,
-         * such as the AppIconTray tray ("appicontray-indicator").
-         */
-        Object (code_name: "aa-nowplaying");
+        Object (code_name: "nowplaying");
     }
 
     construct {
@@ -98,17 +55,15 @@ public class NowPlaying.Indicator : Wingpanel.Indicator {
         load_css ();
 
         views = new HashTable<string, PlayerView> (str_hash, str_equal);
-        prefs = Preferences.get_default ();
 
         /* ---- panel ---- */
-        /* 16px glyphs line up visually with the system indicators' icons */
         panel_icon = new Gtk.Image () {
-            pixel_size = 16,
+            pixel_size = 24,
             icon_name = "audio-x-generic-symbolic"
         };
 
         marquee = new MarqueeLabel () {
-            max_width = prefs.panel_width,
+            max_width = PANEL_TEXT_WIDTH,
             valign = Gtk.Align.CENTER,
             margin_start = 6
         };
@@ -143,44 +98,13 @@ public class NowPlaying.Indicator : Wingpanel.Indicator {
             no_show_all = true
         };
 
-        /* A plain button: a Gtk.ModelButton would close the popover on click */
-        var settings_button = new Gtk.Button () {
-            child = new Gtk.Label (_("Indicator Preferences…")) { xalign = 0 }
-        };
-        settings_button.get_style_context ().add_class (Gtk.STYLE_CLASS_MENUITEM);
-        settings_button.get_style_context ().add_class (Gtk.STYLE_CLASS_FLAT);
-
-        var players_page = new Gtk.Grid () {
-            orientation = Gtk.Orientation.VERTICAL
-        };
-        players_page.add (switcher);
-        players_page.add (stack);
-        players_page.add (new Gtk.Separator (Gtk.Orientation.HORIZONTAL) { margin_top = 3, margin_bottom = 3 });
-        players_page.add (settings_button);
-
-        var settings_page = new SettingsView ();
-
-        main_widget = new Gtk.Stack () {
-            transition_type = Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
-            vhomogeneous = false,
-            interpolate_size = true,
+        main_widget = new Gtk.Grid () {
+            orientation = Gtk.Orientation.VERTICAL,
             width_request = 280
         };
-        main_widget.add_named (players_page, "players");
-        main_widget.add_named (settings_page, "settings");
+        main_widget.add (switcher);
+        main_widget.add (stack);
         main_widget.show_all ();
-
-        settings_button.clicked.connect (() => main_widget.visible_child_name = "settings");
-        settings_page.back.connect (() => main_widget.visible_child_name = "players");
-
-        /* ---- preferences ---- */
-        prefs.notify["panel-width"].connect (() => marquee.max_width = prefs.panel_width);
-        prefs.notify["show-artist"].connect (update_panel);
-        prefs.notify["scroll-text"].connect (update_panel);
-        prefs.notify["show-when-paused"].connect (update_panel);
-        prefs.notify["panel-lyrics"].connect (update_panel);
-        prefs.notify["lyrics-lrclib"].connect (refetch_panel_lyrics);
-        prefs.notify["lyrics-netease"].connect (refetch_panel_lyrics);
 
         /* ---- players ---- */
         manager = new MprisManager ();
@@ -308,117 +232,17 @@ public class NowPlaying.Indicator : Wingpanel.Indicator {
     }
 
     private void update_panel () {
-        bool should_show = active_player != null && (prefs.show_when_paused || active_player.is_playing);
+        bool should_show = active_player != null;
         if (visible != should_show) {
             visible = should_show;
         }
 
-        update_lyric_timers ();
-
         if (active_player == null) {
-            marquee.loop = false;
             return;
         }
 
+        marquee.text = active_player.get_panel_text ();
         panel_icon.icon_name = active_player.is_playing ? "audio-x-generic-symbolic" : "media-playback-pause-symbolic";
-
-        if (prefs.panel_lyrics) {
-            ensure_panel_lyrics ();
-            if (show_panel_lyric ()) {
-                return;
-            }
-        }
-
-        /* Track info. Keep the title moving only while music is actually playing */
-        panel_line = -2;
-        marquee.loop = active_player.is_playing && prefs.scroll_text;
-        marquee.text = active_player.get_panel_text (prefs.show_artist);
-    }
-
-    /* ---------- lyrics in the panel ---------- */
-
-    private void refetch_panel_lyrics () {
-        panel_lyrics_key = "";
-        update_panel ();
-    }
-
-    private void ensure_panel_lyrics () {
-        var p = active_player;
-        var key = "%s\n%s\n%s\n%s\n%lld\n%s\n%u".printf (
-            p.bus_name, p.title, p.artist, p.album, p.length, p.url, p.lyrics_text.hash ()
-        );
-        if (key == panel_lyrics_key) {
-            return;
-        }
-
-        panel_lyrics_key = key;
-        panel_lyrics = null;
-        panel_line = -2;
-        if (p.title == "") {
-            return;
-        }
-
-        p.query_position.begin ();
-
-        var request = ++panel_lyrics_request;
-        LyricsService.get_default ().fetch.begin (new TrackQuery.from_player (p), (obj, res) => {
-            var result = LyricsService.get_default ().fetch.end (res);
-            if (request == panel_lyrics_request) {
-                panel_lyrics = result;
-                update_panel ();
-            }
-        });
-    }
-
-    /* Shows the line being sung. Returns false when there is nothing to show
-     * (no synced lyrics, or before the first line) so the track is shown instead. */
-    private bool show_panel_lyric () {
-        if (panel_lyrics == null || !panel_lyrics.synced) {
-            return false;
-        }
-
-        int index = panel_lyrics.index_at (active_player.estimate_position () + LYRIC_LEAD);
-        if (index < 0) {
-            return false;
-        }
-
-        if (index == panel_line && marquee.pan_mode) {
-            return true;
-        }
-        panel_line = index;
-
-        var line = panel_lyrics.lines[index];
-        int64 next = index + 1 < panel_lyrics.lines.length
-            ? panel_lyrics.lines[index + 1].time
-            : line.time + 4000000;
-        uint duration = (uint) ((next - line.time) / 1000).clamp (1500, 12000);
-
-        marquee.loop = false;
-        marquee.show_line (line.text.strip () != "" ? line.text.strip () : "♪", duration);
-        return true;
-    }
-
-    private void update_lyric_timers () {
-        bool needed = prefs.panel_lyrics && active_player != null && active_player.is_playing;
-
-        if (needed && lyric_timer == 0) {
-            lyric_timer = Timeout.add (150, () => {
-                update_panel ();
-                return Source.CONTINUE;
-            });
-            /* re-sync the interpolated position every couple of seconds */
-            lyric_poll = Timeout.add_seconds (2, () => {
-                if (active_player != null) {
-                    active_player.query_position.begin ();
-                }
-                return Source.CONTINUE;
-            });
-        } else if (!needed && lyric_timer != 0) {
-            Source.remove (lyric_timer);
-            Source.remove (lyric_poll);
-            lyric_timer = 0;
-            lyric_poll = 0;
-        }
     }
 
     /* Only the page on screen polls the player position */
@@ -449,7 +273,6 @@ public class NowPlaying.Indicator : Wingpanel.Indicator {
 
     public override void closed () {
         popover_open = false;
-        main_widget.set_visible_child_full ("players", Gtk.StackTransitionType.NONE);
         sync_active_page ();
     }
 }

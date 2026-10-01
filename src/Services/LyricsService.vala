@@ -121,7 +121,7 @@ namespace NowPlaying {
             session = new Soup.Session () {
                 timeout = 12,
                 /* LRCLIB asks clients to identify themselves */
-                user_agent = "wingpanel-indicator-nowplaying/0.4 (https://github.com/maylton)"
+                user_agent = "wingpanel-indicator-nowplaying/0.4 (https://github.com/maylton/wingpanel-indicator-nowplaying)"
             };
             /* Overridable for testing */
             lrclib_base = Environment.get_variable ("NOWPLAYING_LRCLIB_URL") ?? LRCLIB_BASE;
